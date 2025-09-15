@@ -1,17 +1,8 @@
-import pygame
 import random
 from enum import Enum
 from collections import namedtuple, deque
 import numpy as np
 from config import TIMEOUT_FACTOR
-
-pygame.init()
-font = pygame.font.Font('arial.ttf', 25)
-#font = pygame.font.SysFont('arial', 25)
-
-# Loop detection constants
-LOOP_HISTORY_SIZE = 30
-LOOP_THRESHOLD = 0.8  # 80% repetition
 
 class Direction(Enum):
     RIGHT = 1
@@ -21,27 +12,18 @@ class Direction(Enum):
 
 Point = namedtuple('Point', 'x, y')
 
-# rgb colors
-WHITE = (255, 255, 255)
-RED = (200,0,0)
-BLUE1 = (0, 0, 255)
-BLUE2 = (0, 100, 255)
-BLACK = (0,0,0)
-
 BLOCK_SIZE = 20
-SPEED = 40
+
+# Loop detection constants
+LOOP_HISTORY_SIZE = 30
+LOOP_THRESHOLD = 0.8  # 80% repetition
 
 class SnakeGameAI:
 
     def __init__(self, w=640, h=480):
         self.w = w
         self.h = h
-        # init display
-        self.display = pygame.display.set_mode((self.w, self.h))
-        pygame.display.set_caption('Snake')
-        self.clock = pygame.time.Clock()
         self.reset()
-
 
     def reset(self):
         # init game state
@@ -67,7 +49,6 @@ class SnakeGameAI:
         self.steps_since_food = 0
         self.steps_per_food = []
 
-
     def _place_food(self):
         x = random.randint(0, (self.w-BLOCK_SIZE )//BLOCK_SIZE )*BLOCK_SIZE
         y = random.randint(0, (self.h-BLOCK_SIZE )//BLOCK_SIZE )*BLOCK_SIZE
@@ -75,14 +56,8 @@ class SnakeGameAI:
         if self.food in self.snake:
             self._place_food()
 
-
     def play_step(self, action):
         self.frame_iteration += 1
-        # 1. collect user input
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                quit()
         
         # 2. move
         self._move(action) # update the head
@@ -122,12 +97,8 @@ class SnakeGameAI:
             self.snake.pop()
             self.steps_since_food += 1
         
-        # 5. update ui and clock
-        self._update_ui()
-        self.clock.tick(SPEED)
         # 6. return game over and score
         return reward, game_over, self.score, self.timed_out
-
 
     def is_collision(self, pt=None):
         if pt is None:
@@ -140,21 +111,6 @@ class SnakeGameAI:
             return True
 
         return False
-
-
-    def _update_ui(self):
-        self.display.fill(BLACK)
-
-        for pt in self.snake:
-            pygame.draw.rect(self.display, BLUE1, pygame.Rect(pt.x, pt.y, BLOCK_SIZE, BLOCK_SIZE))
-            pygame.draw.rect(self.display, BLUE2, pygame.Rect(pt.x+4, pt.y+4, 12, 12))
-
-        pygame.draw.rect(self.display, RED, pygame.Rect(self.food.x, self.food.y, BLOCK_SIZE, BLOCK_SIZE))
-
-        text = font.render("Score: " + str(self.score), True, WHITE)
-        self.display.blit(text, [0, 0])
-        pygame.display.flip()
-
 
     def _move(self, action):
         # [straight, right, left]

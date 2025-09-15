@@ -4,9 +4,8 @@ import numpy as np
 import csv
 import os
 from collections import deque
-from game import SnakeGameAI, Direction, Point
+from game_headless import SnakeGameAI, Direction, Point
 from model import Linear_QNet, QTrainer
-from helper import plot, plot_extended, save_plots
 from config import *
 
 # Reproducibility setup
@@ -38,7 +37,6 @@ class Agent:
         
         # Initialize CSV logging
         self.init_csv_logging()
-
 
     def get_state(self, game):
         head = game.snake[0]
@@ -132,7 +130,6 @@ class Agent:
         # Checkpoint every N episodes
         if self.n_games % CHECKPOINT_EVERY == 0:
             self.model.save(f'checkpoint_ep{self.n_games}.pth')
-            save_plots(self.n_games)
             print(f"Checkpoint saved at episode {self.n_games}")
 
     def remember(self, state, action, reward, next_state, done):
@@ -184,70 +181,91 @@ class Agent:
 
 
 def train():
-    plot_scores = []
-    plot_mean_scores = []
-    plot_epsilons = []
-    plot_steps = []
     total_score = 0
     record = 0
     agent = Agent()
     game = SnakeGameAI()
     
-    while True:
-        # get old state
-        state_old = agent.get_state(game)
+    print("Starting headless training...")
+    print("Press Ctrl+C to stop training")
+    
+    try:
+        while True:
+            # get old state
+            state_old = agent.get_state(game)
 
-        # get move
-        final_move = agent.get_action(state_old)
+            # get move
+            final_move = agent.get_action(state_old)
 
-        # perform move and get new state
-        reward, done, score, timed_out = game.play_step(final_move)
-        state_new = agent.get_state(game)
+            # perform move and get new state
+            reward, done, score, timed_out = game.play_step(final_move)
+            state_new = agent.get_state(game)
 
-        # train short memory
-        short_loss = agent.train_short_memory(state_old, final_move, reward, state_new, done)
+            # train short memory
+            short_loss = agent.train_short_memory(state_old, final_move, reward, state_new, done)
 
-        # remember
-        agent.remember(state_old, final_move, reward, state_new, done)
+            # remember
+            agent.remember(state_old, final_move, reward, state_new, done)
 
-        if done:
-            # train long memory
-            long_loss = agent.train_long_memory()
-            train_loss = long_loss if long_loss is not None else -1
-            
-            # Reset game
-            steps = game.frame_iteration
-            game.reset()
-            agent.n_games += 1
+            if done:
+                # train long memory
+                long_loss = agent.train_long_memory()
+                train_loss = long_loss if long_loss is not None else -1
+                
+                # Reset game
+                steps = game.frame_iteration
+                game.reset()
+                agent.n_games += 1
 
-            # Update record
-            if score > record:
-                record = score
-                agent.model.save()
+                # Update record
+                if score > record:
+                    record = score
+                    agent.model.save()
 
-            # Get behavioral metrics from game
-            loop_detected = game.loop_detected
-            food_events = game.food_events
-            mean_steps_per_food = game.get_mean_steps_per_food()
-            
-            # Log episode
-            agent.log_episode(score, steps, timed_out, train_loss, loop_detected, food_events, mean_steps_per_food)
-            
-            print(f'Game {agent.n_games}, Score: {score}, Record: {record}, Avg100: {agent.moving_average(100):.2f}, Epsilon: {agent.epsilon:.3f}')
-
-            # Update plots
-            plot_scores.append(score)
-            total_score += score
-            mean_score = total_score / agent.n_games
-            plot_mean_scores.append(mean_score)
-            plot_epsilons.append(agent.epsilon)
-            plot_steps.append(steps)
-            
-            # Extended plotting every 100 episodes
-            if agent.n_games % 100 == 0:
-                plot_extended(plot_scores, plot_mean_scores, plot_epsilons, plot_steps)
-            else:
-                plot(plot_scores, plot_mean_scores)
+                # Get behavioral metrics from game
+                loop_detected = game.loop_detected
+                food_events = game.food_events
+                mean_steps_per_food = game.get_mean_steps_per_food()
+                
+                # Log episode
+                agent.log_episode(score, steps, timed_out, train_loss, loop_detected, food_events, mean_steps_per_food)
+                
+                # Print progress every episode
+                avg100 = agent.moving_average(100)
+                
+                # Basic info every episode
+                print(f'Ep {agent.n_games:4d} | Score: {score:2d} | Steps: {steps:3d} | Avg100: {avg100:5.2f} | ε: {agent.epsilon:.3f}', end='')
+                
+                # Add flags for special conditions
+                flags = []
+                if timed_out:
+                    flags.append('⏰TIMEOUT')
+                if loop_detected:
+                    flags.append('🔄LOOP')
+                if score > record - 1:  # New record or close to it
+                    flags.append('🎯HIGH')
+                if food_events == 0:
+                    flags.append('❌NOFOOD')
+                
+                if flags:
+                    print(f' | {" ".join(flags)}')
+                else:
+                    print('')
+                
+                # Detailed info every 100 episodes
+                if agent.n_games % 100 == 0:
+                    print(f'─' * 80)
+                    print(f'EPISODE {agent.n_games} SUMMARY:')
+                    print(f'  Record: {record} | Avg100: {avg100:.2f} | Epsilon: {agent.epsilon:.3f}')
+                    print(f'  Last Episode Actions: Straight={agent.actions_straight} Left={agent.actions_left} Right={agent.actions_right} Random={agent.random_actions}')
+                    print(f'  Food Events: {food_events} | Steps/Food: {mean_steps_per_food:.1f}')
+                    print(f'─' * 80)
+                
+    except KeyboardInterrupt:
+        print(f"\nTraining stopped at episode {agent.n_games}")
+        print(f"Final record: {record}")
+        print(f"Final average: {agent.moving_average(100):.2f}")
+        print("Models saved to ./models/")
 
 
 if __name__ == '__main__':

@@ -35,6 +35,10 @@ class Agent:
         # Behavioral tracking for current episode
         self.reset_episode_metrics()
         
+        # Learning metrics for current episode
+        self.episode_losses = []
+        self.episode_grad_norms = []
+        
         # Initialize CSV logging
         self.init_csv_logging()
 
@@ -90,15 +94,20 @@ class Agent:
         self.actions_left = 0
         self.actions_right = 0
         self.random_actions = 0
+        self.episode_losses = []
+        self.episode_grad_norms = []
         
     def init_csv_logging(self):
         """Initialize CSV file for logging metrics"""
         if not os.path.exists('metrics.csv'):
             with open('metrics.csv', 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['episode', 'score', 'avg100', 'steps', 'epsilon', 'timeouts', 'train_loss',
-                               'a_straight', 'a_left', 'a_right', 'random_actions', 'loop_detected',
-                               'food_events', 'mean_steps_per_food'])
+                columns = ['episode', 'score', 'avg100', 'steps', 'epsilon', 'timeouts', 'train_loss_mean',
+                          'a_straight', 'a_left', 'a_right', 'random_actions', 'loop_detected',
+                          'food_events', 'mean_steps_per_food']
+                if ENABLE_GRAD_NORM:
+                    columns.append('grad_norm_mean')
+                writer.writerow(columns)
     
     def moving_average(self, window=100):
         """Calculate moving average of scores"""
@@ -106,7 +115,7 @@ class Agent:
             return sum(self.scores) / len(self.scores) if self.scores else 0
         return sum(self.scores[-window:]) / window
     
-    def log_episode(self, score, steps, timed_out, train_loss, loop_detected, food_events, mean_steps_per_food):
+    def log_episode(self, score, steps, timed_out, loop_detected, food_events, mean_steps_per_food):
         """Log episode metrics to CSV"""
         self.scores.append(score)
         avg100 = self.moving_average(100)
@@ -117,12 +126,19 @@ class Agent:
             self.model.save('best_avg.pth')
             print(f"New best average: {avg100:.2f}, saved to best_avg.pth")
         
-        # Log to CSV with behavioral metrics
+        # Calculate learning metrics for this episode
+        train_loss_mean = sum(self.episode_losses) / len(self.episode_losses) if self.episode_losses else -1
+        grad_norm_mean = sum(self.episode_grad_norms) / len(self.episode_grad_norms) if self.episode_grad_norms else -1
+        
+        # Log to CSV with behavioral and learning metrics
         with open('metrics.csv', 'a', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([self.n_games, score, avg100, steps, self.epsilon, int(timed_out), train_loss,
-                           self.actions_straight, self.actions_left, self.actions_right, self.random_actions,
-                           int(loop_detected), food_events, mean_steps_per_food])
+            row = [self.n_games, score, avg100, steps, self.epsilon, int(timed_out), train_loss_mean,
+                   self.actions_straight, self.actions_left, self.actions_right, self.random_actions,
+                   int(loop_detected), food_events, mean_steps_per_food]
+            if ENABLE_GRAD_NORM:
+                row.append(grad_norm_mean)
+            writer.writerow(row)
         
         # Reset episode metrics for next episode
         self.reset_episode_metrics()
@@ -131,6 +147,8 @@ class Agent:
         if self.n_games % CHECKPOINT_EVERY == 0:
             self.model.save(f'checkpoint_ep{self.n_games}.pth')
             print(f"Checkpoint saved at episode {self.n_games}")
+            
+        return train_loss_mean, grad_norm_mean
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done)) # popleft if MAX_MEMORY is reached
@@ -142,12 +160,26 @@ class Agent:
             mini_sample = self.memory
 
         states, actions, rewards, next_states, dones = zip(*mini_sample)
-        loss = self.trainer.train_step(states, actions, rewards, next_states, dones)
-        return loss
+        loss, grad_norm = self.trainer.train_step(states, actions, rewards, next_states, dones)
+        
+        # Store learning metrics
+        if loss is not None:
+            self.episode_losses.append(loss)
+        if grad_norm is not None:
+            self.episode_grad_norms.append(grad_norm)
+            
+        return loss, grad_norm
 
     def train_short_memory(self, state, action, reward, next_state, done):
-        loss = self.trainer.train_step(state, action, reward, next_state, done)
-        return loss
+        loss, grad_norm = self.trainer.train_step(state, action, reward, next_state, done)
+        
+        # Store learning metrics
+        if loss is not None:
+            self.episode_losses.append(loss)
+        if grad_norm is not None:
+            self.episode_grad_norms.append(grad_norm)
+            
+        return loss, grad_norm
 
     def get_action(self, state, eval_mode=False):
         # Exponential epsilon decay
@@ -202,15 +234,14 @@ def train():
             state_new = agent.get_state(game)
 
             # train short memory
-            short_loss = agent.train_short_memory(state_old, final_move, reward, state_new, done)
+            short_loss, short_grad = agent.train_short_memory(state_old, final_move, reward, state_new, done)
 
             # remember
             agent.remember(state_old, final_move, reward, state_new, done)
 
             if done:
                 # train long memory
-                long_loss = agent.train_long_memory()
-                train_loss = long_loss if long_loss is not None else -1
+                long_loss, long_grad = agent.train_long_memory()
                 
                 # Reset game
                 steps = game.frame_iteration
@@ -228,13 +259,14 @@ def train():
                 mean_steps_per_food = game.get_mean_steps_per_food()
                 
                 # Log episode
-                agent.log_episode(score, steps, timed_out, train_loss, loop_detected, food_events, mean_steps_per_food)
+                train_loss_mean, grad_norm_mean = agent.log_episode(score, steps, timed_out, loop_detected, food_events, mean_steps_per_food)
                 
                 # Print progress every episode
                 avg100 = agent.moving_average(100)
                 
                 # Basic info every episode
-                print(f'Ep {agent.n_games:4d} | Score: {score:2d} | Steps: {steps:3d} | Avg100: {avg100:5.2f} | ε: {agent.epsilon:.3f}', end='')
+                loss_str = f'Loss: {train_loss_mean:.4f}' if train_loss_mean != -1 else 'Loss: N/A'
+                print(f'Ep {agent.n_games:4d} | Score: {score:2d} | Steps: {steps:3d} | Avg100: {avg100:5.2f} | ε: {agent.epsilon:.3f} | {loss_str}', end='')
                 
                 # Add flags for special conditions
                 flags = []
@@ -257,6 +289,7 @@ def train():
                     print(f'─' * 80)
                     print(f'EPISODE {agent.n_games} SUMMARY:')
                     print(f'  Record: {record} | Avg100: {avg100:.2f} | Epsilon: {agent.epsilon:.3f}')
+                    print(f'  Learning: Loss={train_loss_mean:.4f}' + (f' | GradNorm={grad_norm_mean:.4f}' if ENABLE_GRAD_NORM and grad_norm_mean != -1 else ''))
                     print(f'  Last Episode Actions: Straight={agent.actions_straight} Left={agent.actions_left} Right={agent.actions_right} Random={agent.random_actions}')
                     print(f'  Food Events: {food_events} | Steps/Food: {mean_steps_per_food:.1f}')
                     print(f'─' * 80)
@@ -271,4 +304,7 @@ def train():
 if __name__ == '__main__':
     print(f"Starting training on {device}")
     print(f"Hyperparameters: EPS0={EPS0}, DECAY={DECAY}, EPS_MIN={EPS_MIN}")
+    print(f"Advanced monitoring: GradNorm={ENABLE_GRAD_NORM}, Clipping={ENABLE_CLIP} (max={GRAD_CLIP_MAX_NORM})")
+    print(f"Training flags: Grad monitoring and clipping enabled for robust learning")
+    print("-" * 80)
     train()

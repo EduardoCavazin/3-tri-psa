@@ -21,3 +21,8 @@ SEED = 42
 MAX_MEMORY = 100_000
 BATCH_SIZE = 1000
 LR = 0.001
+
+# Advanced training monitoring flags
+ENABLE_GRAD_NORM = True
+ENABLE_CLIP = True
+GRAD_CLIP_MAX_NORM = 10.0

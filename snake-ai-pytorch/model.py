@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import os
+from config import ENABLE_GRAD_NORM, ENABLE_CLIP, GRAD_CLIP_MAX_NORM
 
 # Get device from agent.py
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -75,9 +76,35 @@ class QTrainer:
         self.optimizer.zero_grad()
         loss = self.criterion(target, pred)
         loss.backward()
+        
+        # Calculate gradient norm if enabled
+        grad_norm = None
+        if ENABLE_GRAD_NORM:
+            grad_norm = self._calculate_grad_norm()
+        
+        # Gradient clipping if enabled
+        if ENABLE_CLIP:
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=GRAD_CLIP_MAX_NORM)
+        
         self.optimizer.step()
         
-        return loss.item()
+        return loss.item(), grad_norm
+    
+    def _calculate_grad_norm(self):
+        """Calculate L2 norm of gradients"""
+        total_norm = 0
+        param_count = 0
+        
+        for p in self.model.parameters():
+            if p.grad is not None:
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+                param_count += 1
+        
+        if param_count > 0:
+            total_norm = total_norm ** (1. / 2)
+            return total_norm / param_count  # Average norm
+        return 0.0
 
 
 

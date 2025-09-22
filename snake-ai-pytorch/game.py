@@ -3,7 +3,7 @@ import random
 from enum import Enum
 from collections import namedtuple, deque
 import numpy as np
-from config import TIMEOUT_FACTOR
+from config import TIMEOUT_FACTOR, ENABLE_SHAPING, REWARD_SURVIVE, REWARD_APPROACH, PENALTY_DETOUR
 
 pygame.init()
 font = pygame.font.Font('arial.ttf', 25)
@@ -30,6 +30,10 @@ BLACK = (0,0,0)
 
 BLOCK_SIZE = 20
 SPEED = 40
+
+def _manhattan(p1, p2):
+    """Calculate Manhattan distance between two points"""
+    return abs(p1.x - p2.x) + abs(p1.y - p2.y)
 
 class SnakeGameAI:
 
@@ -83,24 +87,30 @@ class SnakeGameAI:
             if event.type == pygame.QUIT:
                 pygame.quit()
                 quit()
-        
-        # 2. move
+
+        # 2. Calculate distance before move (for reward shaping)
+        dist_before = _manhattan(self.head, self.food)
+
+        # 3. move
         self._move(action) # update the head
         self.snake.insert(0, self.head)
-        
+
         # Track movement for loop detection
         self._track_movement(action)
-        
-        # 3. check if game over
+
+        # Calculate distance after move (for reward shaping)
+        dist_after = _manhattan(self.head, self.food)
+
+        # 4. check if game over
         reward = 0
         game_over = False
-        
+
         # Check for collision
         if self.is_collision():
             game_over = True
             reward = -10
             return reward, game_over, self.score, self.timed_out
-        
+
         # Check for timeout
         if self.frame_iteration > TIMEOUT_FACTOR * len(self.snake):
             game_over = True
@@ -108,12 +118,12 @@ class SnakeGameAI:
             self.timed_out = True
             return reward, game_over, self.score, self.timed_out
 
-        # 4. place new food or just move
+        # 5. place new food or just move
         if self.head == self.food:
             self.score += 1
             reward = 10
             self._place_food()
-            
+
             # Track food efficiency
             self.food_events += 1
             self.steps_per_food.append(self.steps_since_food)
@@ -121,11 +131,23 @@ class SnakeGameAI:
         else:
             self.snake.pop()
             self.steps_since_food += 1
-        
-        # 5. update ui and clock
+
+        # 6. Apply reward shaping if enabled
+        if ENABLE_SHAPING:
+            # Survival reward for each step
+            reward += REWARD_SURVIVE
+
+            # Approach/detour reward based on distance change
+            if dist_after < dist_before:
+                reward += REWARD_APPROACH
+            elif dist_after > dist_before:
+                reward += PENALTY_DETOUR
+            # if dist_after == dist_before, no additional reward/penalty
+
+        # 7. update ui and clock
         self._update_ui()
         self.clock.tick(SPEED)
-        # 6. return game over and score
+        # 8. return game over and score
         return reward, game_over, self.score, self.timed_out
 
 

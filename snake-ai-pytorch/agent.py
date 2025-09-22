@@ -183,7 +183,7 @@ class Agent:
         return final_move
 
 
-def train():
+def train(max_episodes=None):
     plot_scores = []
     plot_mean_scores = []
     plot_epsilons = []
@@ -192,8 +192,15 @@ def train():
     record = 0
     agent = Agent()
     game = SnakeGameAI()
-    
+
+    # Use max_episodes from parameter, config, or run indefinitely
+    episodes_limit = max_episodes or MAX_EPISODES
+
     while True:
+        # Check episode limit
+        if episodes_limit and agent.n_games >= episodes_limit:
+            print(f"Training completed: {agent.n_games} episodes")
+            break
         # get old state
         state_old = agent.get_state(game)
 
@@ -253,4 +260,4 @@ def train():
 if __name__ == '__main__':
     print(f"Starting training on {device}")
     print(f"Hyperparameters: EPS0={EPS0}, DECAY={DECAY}, EPS_MIN={EPS_MIN}")
-    train()
+    train(max_episodes=MAX_EPISODES)

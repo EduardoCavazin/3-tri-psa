@@ -29,10 +29,10 @@ def plot(scores, mean_scores):
     plt.show(block=False)
     plt.pause(.1)
 
-def plot_extended(scores, mean_scores, epsilons, steps):
+def plot_extended(scores, mean_scores, epsilons, steps, plots_dir='runs/plots'):
     """Extended plotting with multiple metrics"""
     # Create plots directory if it doesn't exist
-    os.makedirs('runs/plots', exist_ok=True)
+    os.makedirs(plots_dir, exist_ok=True)
     
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
     
@@ -77,23 +77,23 @@ def plot_extended(scores, mean_scores, epsilons, steps):
     plt.show(block=False)
     plt.pause(.1)
     
-def plot_learning_metrics(episode):
+def plot_learning_metrics(episode, metrics_csv='metrics.csv', plots_dir='runs/plots'):
     """Create comprehensive learning metrics plots from CSV data"""
     if not PANDAS_AVAILABLE:
         print("Pandas not available, skipping advanced plots")
         return
-        
-    if not os.path.exists('metrics.csv'):
-        print("No metrics.csv found for plotting")
+
+    if not os.path.exists(metrics_csv):
+        print(f"No {metrics_csv} found for plotting")
         return
         
     try:
         # Read metrics data
-        df = pd.read_csv('metrics.csv')
+        df = pd.read_csv(metrics_csv)
         if len(df) < 10:  # Need some data to plot
             return
             
-        os.makedirs('runs/plots', exist_ok=True)
+        os.makedirs(plots_dir, exist_ok=True)
         
         # Create learning metrics plot
         fig_size = (20, 12) if ENABLE_GRAD_NORM else (20, 9)
@@ -203,8 +203,8 @@ def plot_learning_metrics(episode):
         plt.tight_layout()
         
         # Save plot
-        plt.savefig(f'runs/plots/learning_metrics_ep{episode}.png', dpi=150, bbox_inches='tight')
-        print(f"Learning metrics plots saved to runs/plots/learning_metrics_ep{episode}.png")
+        plt.savefig(f'{plots_dir}/learning_metrics_ep{episode}.png', dpi=150, bbox_inches='tight')
+        print(f"Learning metrics plots saved to {plots_dir}/learning_metrics_ep{episode}.png")
         
         plt.show(block=False)
         plt.pause(0.1)
@@ -212,17 +212,17 @@ def plot_learning_metrics(episode):
     except Exception as e:
         print(f"Error creating learning metrics plots: {e}")
 
-def save_plots(episode):
+def save_plots(episode, plots_dir='runs/plots', metrics_csv='metrics.csv'):
     """Save current plots to PNG files"""
-    os.makedirs('runs/plots', exist_ok=True)
+    os.makedirs(plots_dir, exist_ok=True)
     
     try:
         # Generate comprehensive learning metrics plots
-        plot_learning_metrics(episode)
+        plot_learning_metrics(episode, metrics_csv, plots_dir)
         
         # Save the current figure (if any)
         if plt.get_fignums():  # Check if there are any figures
-            plt.savefig(f'runs/plots/training_ep{episode}.png', dpi=150, bbox_inches='tight')
-            print(f"Additional plots saved to runs/plots/training_ep{episode}.png")
+            plt.savefig(f'{plots_dir}/training_ep{episode}.png', dpi=150, bbox_inches='tight')
+            print(f"Additional plots saved to {plots_dir}/training_ep{episode}.png")
     except Exception as e:
         print(f"Error saving plots: {e}")
